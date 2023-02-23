@@ -4834,12 +4834,12 @@ Defaults to <code>per_second: 0.1</code>, <code>burst_count: 5</code>.</p>
 <ul>
 <li>
 <p><code>address</code> ratelimits login requests based on the client's IP
-address. Defaults to <code>per_second: 0.17</code>, <code>burst_count: 3</code>.</p>
+address. Defaults to <code>per_second: 0.003</code>, <code>burst_count: 5</code>.</p>
 </li>
 <li>
 <p><code>account</code> ratelimits login requests based on the account the
-client is attempting to log into. Defaults to <code>per_second: 0.17</code>,
-<code>burst_count: 3</code>.</p>
+client is attempting to log into. Defaults to <code>per_second: 0.03</code>,
+<code>burst_count: 5</code>.</p>
 </li>
 <li>
 <p><code>failed_attempts</code> ratelimits login requests based on the account the
@@ -9778,6 +9778,8 @@ it will be included in this state.</p>
 <p>Note that this callback is called when the event has already been processed and stored
 into the room, which means this callback cannot be used to deny persisting the event. To
 deny an incoming event, see <a href="modules/spam_checker_callbacks.html#check_event_for_spam"><code>check_event_for_spam</code></a> instead.</p>
+<p>For any given event, this callback will be called on every worker process, even if that worker will not end up
+acting on that event. This callback will not be called for events that are marked as rejected.</p>
 <p>If multiple modules implement this callback, Synapse runs them all in order.</p>
 <h3 id="check_can_shutdown_room"><a class="header" href="#check_can_shutdown_room"><code>check_can_shutdown_room</code></a></h3>
 <p><em>First introduced in Synapse v1.55.0</em></p>
