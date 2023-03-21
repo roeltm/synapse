@@ -1779,6 +1779,24 @@ dpkg -i matrix-synapse-py3_1.3.0+stretch1_amd64.deb
 </code></pre>
 </li>
 </ul>
+<h1 id="upgrading-to-v1790"><a class="header" href="#upgrading-to-v1790">Upgrading to v1.79.0</a></h1>
+<h2 id="the-on_threepid_bind-module-callback-method-has-been-deprecated"><a class="header" href="#the-on_threepid_bind-module-callback-method-has-been-deprecated">The <code>on_threepid_bind</code> module callback method has been deprecated</a></h2>
+<p>Synapse v1.79.0 deprecates the
+<a href="modules/third_party_rules_callbacks.html#on_threepid_bind"><code>on_threepid_bind</code></a>
+&quot;third-party rules&quot; Synapse module callback method in favour of a new module method,
+<a href="modules/third_party_rules_callbacks.html#on_add_user_third_party_identifier"><code>on_add_user_third_party_identifier</code></a>.
+<code>on_threepid_bind</code> will be removed in a future version of Synapse. You should check whether any Synapse
+modules in use in your deployment are making use of <code>on_threepid_bind</code>, and update them where possible.</p>
+<p>The arguments and functionality of the new method are the same.</p>
+<p>The justification behind the name change is that the old method's name, <code>on_threepid_bind</code>, was
+misleading. A user is considered to &quot;bind&quot; their third-party ID to their Matrix ID only if they
+do so via an <a href="https://spec.matrix.org/latest/identity-service-api/">identity server</a>
+(so that users on other homeservers may find them). But this method was not called in that case -
+it was only called when a user added a third-party identifier on the local homeserver.</p>
+<p>Module developers may also be interested in the related
+<a href="modules/third_party_rules_callbacks.html#on_remove_user_third_party_identifier"><code>on_remove_user_third_party_identifier</code></a>
+module callback method that was also added in Synapse v1.79.0. This new method is called when a
+user removes a third-party identifier from their account.</p>
 <h1 id="upgrading-to-v1780"><a class="header" href="#upgrading-to-v1780">Upgrading to v1.78.0</a></h1>
 <h2 id="deprecate-the-_synapseadminv1mediaserver_namedelete-admin-api"><a class="header" href="#deprecate-the-_synapseadminv1mediaserver_namedelete-admin-api">Deprecate the <code>/_synapse/admin/v1/media/&lt;server_name&gt;/delete</code> admin API</a></h2>
 <p>Synapse 1.78.0 replaces the <code>/_synapse/admin/v1/media/&lt;server_name&gt;/delete</code>
@@ -5395,8 +5413,8 @@ however, the interface is <a href="usage/configuration/../../admin_api/register_
 <p>An alternative to <a href="usage/configuration/config_documentation.html#registration_shared_secret"><code>registration_shared_secret</code></a>:
 allows the shared secret to be specified in an external file.</p>
 <p>The file should be a plain text file, containing only the shared secret.</p>
-<p>If this file does not exist, Synapse will create a new signing
-key on startup and store it in this file.</p>
+<p>If this file does not exist, Synapse will create a new shared
+secret on startup and store it in this file.</p>
 <p>Example configuration:</p>
 <pre><code class="language-yaml">registration_shared_secret_path: /path/to/secrets/file
 </code></pre>
@@ -9355,6 +9373,54 @@ the callback name as the argument name and the function as its value. A
 <code>register_[...]_callbacks</code> method exists for each category.</p>
 <p>Callbacks for each category can be found on their respective page of the
 <a href="https://matrix-org.github.io/synapse">Synapse documentation website</a>.</p>
+<h2 id="caching-1"><a class="header" href="#caching-1">Caching</a></h2>
+<p><em>Added in Synapse 1.74.0.</em></p>
+<p>Modules can leverage Synapse's caching tools to manage their own cached functions. This
+can be helpful for modules that need to repeatedly request the same data from the database
+or a remote service.</p>
+<p>Functions that need to be wrapped with a cache need to be decorated with a <code>@cached()</code>
+decorator (which can be imported from <code>synapse.module_api</code>) and registered with the
+<a href="https://github.com/matrix-org/synapse/blob/release-v1.77/synapse/module_api/__init__.py#L888"><code>ModuleApi.register_cached_function</code></a>
+API when initialising the module. If the module needs to invalidate an entry in a cache,
+it needs to use the <a href="https://github.com/matrix-org/synapse/blob/release-v1.77/synapse/module_api/__init__.py#L904"><code>ModuleApi.invalidate_cache</code></a>
+API, with the function to invalidate the cache of and the key(s) of the entry to
+invalidate.</p>
+<p>Below is an example of a simple module using a cached function:</p>
+<pre><code class="language-python">from typing import Any
+from synapse.module_api import cached, ModuleApi
+
+class MyModule:
+    def __init__(self, config: Any, api: ModuleApi):
+        self.api = api
+        
+        # Register the cached function so Synapse knows how to correctly invalidate
+        # entries for it.
+        self.api.register_cached_function(self.get_user_from_id)
+
+    @cached()
+    async def get_department_for_user(self, user_id: str) -&gt; str:
+        &quot;&quot;&quot;A function with a cache.&quot;&quot;&quot;
+        # Request a department from an external service.
+        return await self.http_client.get_json(
+            &quot;https://int.example.com/users&quot;, {&quot;user_id&quot;: user_id)
+        )[&quot;department&quot;]
+
+    async def do_something_with_users(self) -&gt; None:
+        &quot;&quot;&quot;Calls the cached function and then invalidates an entry in its cache.&quot;&quot;&quot;
+        
+        user_id = &quot;@alice:example.com&quot;
+        
+        # Get the user. Since get_department_for_user is wrapped with a cache,
+        # the return value for this user_id will be cached.
+        department = await self.get_department_for_user(user_id)
+        
+        # Do something with `department`...
+        
+        # Let's say something has changed with our user, and the entry we have for
+        # them in the cache is out of date, so we want to invalidate it.
+        await self.api.invalidate_cache(self.get_department_for_user, (user_id,))
+</code></pre>
+<p>See the <a href="https://github.com/matrix-org/synapse/blob/release-v1.77/synapse/module_api/__init__.py#L190"><code>cached</code> docstring</a> for more details.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="spam-checker-callbacks"><a class="header" href="#spam-checker-callbacks">Spam checker callbacks</a></h1>
 <p>Spam checker callbacks allow module developers to implement spam mitigation actions for
 Synapse instances. Spam checker callbacks can be registered using the module API's
@@ -9622,8 +9688,8 @@ this callback.</p>
 <p><em>First introduced in Synapse v1.37.0</em></p>
 <p><em>Changed in Synapse v1.62.0: <code>synapse.module_api.NOT_SPAM</code> and <code>synapse.module_api.errors.Codes</code> can be returned by this callback. Returning a boolean is now deprecated.</em> </p>
 <pre><code class="language-python">async def check_media_file_for_spam(
-    file_wrapper: &quot;synapse.rest.media.v1.media_storage.ReadableFileWrapper&quot;,
-    file_info: &quot;synapse.rest.media.v1._base.FileInfo&quot;,
+    file_wrapper: &quot;synapse.media.media_storage.ReadableFileWrapper&quot;,
+    file_info: &quot;synapse.media._base.FileInfo&quot;,
 ) -&gt; Union[&quot;synapse.module_api.NOT_SPAM&quot;, &quot;synapse.module_api.errors.Codes&quot;, bool]
 </code></pre>
 <p>Called when storing a local or remote file.</p>
@@ -9890,6 +9956,10 @@ admin API.</p>
 <p>If multiple modules implement this callback, Synapse runs them all in order.</p>
 <h3 id="on_threepid_bind"><a class="header" href="#on_threepid_bind"><code>on_threepid_bind</code></a></h3>
 <p><em>First introduced in Synapse v1.56.0</em></p>
+<p><strong><span style="color:red">
+This callback is deprecated in favour of the <code>on_add_user_third_party_identifier</code> callback, which
+features the same functionality. The only difference is in name.
+</span></strong></p>
 <pre><code class="language-python">async def on_threepid_bind(user_id: str, medium: str, address: str) -&gt; None:
 </code></pre>
 <p>Called after creating an association between a local user and a third-party identifier
@@ -9898,6 +9968,28 @@ association is for, as well as the medium (<code>email</code> or <code>msisdn</c
 third-party identifier.</p>
 <p>Note that this callback is <em>not</em> called after a successful association on an <em>identity
 server</em>.</p>
+<p>If multiple modules implement this callback, Synapse runs them all in order.</p>
+<h3 id="on_add_user_third_party_identifier"><a class="header" href="#on_add_user_third_party_identifier"><code>on_add_user_third_party_identifier</code></a></h3>
+<p><em>First introduced in Synapse v1.79.0</em></p>
+<pre><code class="language-python">async def on_add_user_third_party_identifier(user_id: str, medium: str, address: str) -&gt; None:
+</code></pre>
+<p>Called after successfully creating an association between a user and a third-party identifier
+(email address, phone number). The module is given the Matrix ID of the user the
+association is for, as well as the medium (<code>email</code> or <code>msisdn</code>) and address of the
+third-party identifier (i.e. an email address).</p>
+<p>Note that this callback is <em>not</em> called if a user attempts to bind their third-party identifier
+to an identity server (via a call to <a href="https://spec.matrix.org/v1.5/client-server-api/#post_matrixclientv3account3pidbind"><code>POST /_matrix/client/v3/account/3pid/bind</code></a>).</p>
+<p>If multiple modules implement this callback, Synapse runs them all in order.</p>
+<h3 id="on_remove_user_third_party_identifier"><a class="header" href="#on_remove_user_third_party_identifier"><code>on_remove_user_third_party_identifier</code></a></h3>
+<p><em>First introduced in Synapse v1.79.0</em></p>
+<pre><code class="language-python">async def on_remove_user_third_party_identifier(user_id: str, medium: str, address: str) -&gt; None:
+</code></pre>
+<p>Called after successfully removing an association between a user and a third-party identifier
+(email address, phone number). The module is given the Matrix ID of the user the
+association is for, as well as the medium (<code>email</code> or <code>msisdn</code>) and address of the
+third-party identifier (i.e. an email address).</p>
+<p>Note that this callback is <em>not</em> called if a user attempts to unbind their third-party
+identifier from an identity server (via a call to <a href="https://spec.matrix.org/v1.5/client-server-api/#post_matrixclientv3account3pidunbind"><code>POST /_matrix/client/v3/account/3pid/unbind</code></a>).</p>
 <p>If multiple modules implement this callback, Synapse runs them all in order.</p>
 <h2 id="example-1"><a class="header" href="#example-1">Example</a></h2>
 <p>The example below is a module that implements the third-party rules callback
@@ -10632,7 +10724,9 @@ information.</p>
 ^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/event/
 ^/_matrix/client/(api/v1|r0|v3|unstable)/joined_rooms$
 ^/_matrix/client/v1/rooms/.*/timestamp_to_event$
+^/_matrix/client/(api/v1|r0|v3|unstable/.*)/rooms/.*/aliases
 ^/_matrix/client/(api/v1|r0|v3|unstable)/search$
+^/_matrix/client/(r0|v3|unstable)/user/.*/filter(/|$)
 
 # Encryption requests
 ^/_matrix/client/(r0|v3|unstable)/keys/query$
@@ -10644,6 +10738,7 @@ information.</p>
 # Registration/login requests
 ^/_matrix/client/(api/v1|r0|v3|unstable)/login$
 ^/_matrix/client/(r0|v3|unstable)/register$
+^/_matrix/client/(r0|v3|unstable)/register/available$
 ^/_matrix/client/v1/register/m.login.registration_token/validity$
 
 # Event sending requests
@@ -10652,6 +10747,7 @@ information.</p>
 ^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/state/
 ^/_matrix/client/(api/v1|r0|v3|unstable)/rooms/.*/(join|invite|leave|ban|unban|kick)$
 ^/_matrix/client/(api/v1|r0|v3|unstable)/join/
+^/_matrix/client/(api/v1|r0|v3|unstable)/knock/
 ^/_matrix/client/(api/v1|r0|v3|unstable)/profile/
 
 # Account data requests
@@ -11482,6 +11578,16 @@ was reported.</li>
 <li><code>canonical_alias</code>: string - The canonical alias of the room. <code>null</code> if the room does not
 have a canonical alias set.</li>
 <li><code>event_json</code>: object - Details of the original event that was reported.</li>
+</ul>
+<h1 id="delete-a-specific-event-report"><a class="header" href="#delete-a-specific-event-report">Delete a specific event report</a></h1>
+<p>This API deletes a specific event report. If the request is successful, the response body
+will be an empty JSON object.</p>
+<p>The api is:</p>
+<pre><code>DELETE /_synapse/admin/v1/event_reports/&lt;report_id&gt;
+</code></pre>
+<p><strong>URL parameters:</strong></p>
+<ul>
+<li><code>report_id</code>: string - The ID of the event report.</li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="querying-media"><a class="header" href="#querying-media">Querying media</a></h1>
 <p>These APIs allow extracting media information from the homeserver.</p>
