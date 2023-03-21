@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, List
 from txredisapi import RedisFactory, Sentinel  # type: ignore[attr-defined]
 
 from synapse.config.redis import RedisConfig
+from synapse.replication.tcp.redis.client_context_factory import ClientContextFactory
 from synapse.replication.tcp.redis.connection import (
     IRedisConnection,
     RedisConnection,
@@ -75,11 +76,23 @@ def get_replication_factory(
         )
 
         reactor = hs.get_reactor()
-        reactor.connectTCP(
-            hs.config.redis.redis_host,
-            hs.config.redis.redis_port,
-            factory,
-            timeout=30,
-            bindAddress=None,
-        )
+
+        if (hs.config.redis.redis_use_ssl):
+            ssl_context_factory = ClientContextFactory(hs.config.redis)
+            reactor.connectSSL(
+                hs.config.redis.redis_host,
+                hs.config.redis.redis_port,
+                factory,
+                ssl_context_factory,
+                timeout=30,
+                bindAddress=None,
+            )
+        else:
+            reactor.connectTCP(
+                hs.config.redis.redis_host,
+                hs.config.redis.redis_port,
+                factory,
+                timeout=30,
+                bindAddress=None,
+            )
     return factory
