@@ -40,3 +40,8 @@ class RedisConfig(Config):
             (s.get("host"), int(s.get("port")))
             for s in redis_config.get("sentinels", [])
         ]
+        self.redis_use_ssl = redis_config.get('use_ssl', False)
+        self.redis_certificate = redis_config.get("certificate_file", None)
+        self.redis_private_key = redis_config.get("private_key_file", None)
+        self.redis_ca_file = redis_config.get("ca_file", None) 
+        self.redis_ca_path = redis_config.get("ca_path", None)

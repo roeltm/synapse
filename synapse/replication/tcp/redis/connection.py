@@ -29,6 +29,7 @@ from twisted.python.failure import Failure
 
 from synapse.logging.context import make_deferred_yieldable
 from synapse.metrics.background_process_metrics import wrap_as_background_process
+from synapse.replication.tcp.redis.client_context_factory import ClientContextFactory
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -178,13 +179,24 @@ class RedisConnection:
         factory.continueTrying = reconnect
 
         reactor = hs.get_reactor()
-        reactor.connectTCP(
-            host,
-            port,
-            factory,
-            timeout=30,
-            bindAddress=None,
-        )
+        if (hs.config.redis.redis_use_ssl):
+            ssl_context_factory = ClientContextFactory(hs.config.redis)
+            reactor.connectSSL(
+                host,
+                port,
+                factory,
+                ssl_context_factory,
+                timeout=30,
+                bindAddress=None,
+            )
+        else:
+            reactor.connectTCP(
+                host,
+                port,
+                factory,
+                timeout=30,
+                bindAddress=None,
+            )
 
         self.handler = factory.handler
 
@@ -222,7 +234,11 @@ class SentinelRedisConnection:
     ):
         self.service_name = service_name
         self.password = password
-        self.sentinel = Sentinel(sentinels)
+
+        client_context_factory= None
+        if (hs.config.redis.redis_use_ssl):
+            client_context_factory=ClientContextFactory(hs.config.redis)
+        self.sentinel = Sentinel(sentinels, ssl_client_context_factory=client_context_factory)
         self.dbid = dbid
         self.replyTimeout = replyTimeout
 
